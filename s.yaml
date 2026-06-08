@@ -1,0 +1,55 @@
+edition: 3.0.0
+name: private-domain-drive-server
+
+vars:
+  region: cn-hangzhou
+  service:
+    name: private-domain-drive-service
+    description: Private Domain Drive FC service
+  function:
+    name: private-domain-drive-api
+    description: Session bootstrap and lightweight control-plane APIs
+    runtime: nodejs20
+    timeout: 10
+    memorySize: 512
+    diskSize: 512
+    instanceConcurrency: 10
+    caPort: 9000
+
+resources:
+  private-domain-drive-api:
+    component: fc3
+    props:
+      region: ${vars.region}
+      serviceName: ${vars.service.name}
+      description: ${vars.service.description}
+      functionName: ${vars.function.name}
+      runtime: ${vars.function.runtime}
+      handler: index.handler
+      code: ./
+      timeout: ${vars.function.timeout}
+      memorySize: ${vars.function.memorySize}
+      diskSize: ${vars.function.diskSize}
+      instanceConcurrency: ${vars.function.instanceConcurrency}
+      environmentVariables:
+        OSS_BUCKET: private-domain-drive
+        OSS_REGION: cn-hangzhou
+        OSS_ENDPOINT: oss-cn-hangzhou.aliyuncs.com
+        OSS_ROOT_PREFIX: shared/
+        TEXT_PREVIEW_MAX_BYTES: "524288"
+        MULTIPART_UPLOAD_THRESHOLD_BYTES: "10485760"
+        ALLOWED_PREVIEW_EXTENSIONS: jpg,jpeg,png,gif,pdf,txt,md
+        STS_ASSUME_ROLE_ARN: ""
+      triggers:
+        - triggerName: http-trigger
+          triggerType: http
+          qualifier: LATEST
+          triggerConfig:
+            authType: anonymous
+            methods:
+              - GET
+              - POST
+            disableURLInternet: false
+            protocols:
+              - HTTP
+              - HTTPS
