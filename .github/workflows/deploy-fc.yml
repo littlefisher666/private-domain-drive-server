@@ -1,0 +1,114 @@
+name: Deploy FC
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: fc-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+  deploy:
+    name: Deploy to Aliyun FC
+    needs: test
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # 部署凭证：用于 Serverless Devs 调用国内阿里云 FC API
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+      ALIYUN_ACCOUNT_ID: ${{ secrets.ALIYUN_ACCOUNT_ID }}
+      ALIYUN_FC_ROLE_ARN: ${{ secrets.ALIYUN_FC_ROLE_ARN }}
+      # 运行时凭证：写入 FC 环境变量，供 STS AssumeRole 使用
+      ALIBABA_CLOUD_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
+      ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
+      STS_ASSUME_ROLE_ARN: ${{ secrets.STS_ASSUME_ROLE_ARN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Validate required secrets
+        run: |
+          required_vars=(
+            ALIYUN_ACCESS_KEY_ID
+            ALIYUN_ACCESS_KEY_SECRET
+            ALIYUN_ACCOUNT_ID
+            ALIYUN_FC_ROLE_ARN
+            ALIBABA_CLOUD_ACCESS_KEY_ID
+            ALIBABA_CLOUD_ACCESS_KEY_SECRET
+            STS_ASSUME_ROLE_ARN
+          )
+          missing=0
+          for name in "${required_vars[@]}"; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required secret/env: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Please configure the secrets listed above in GitHub repository settings."
+            exit 1
+          fi
+
+      - name: Install production dependencies
+        run: npm ci --omit=dev
+
+      - name: Install Serverless Devs
+        run: npm install -g @serverless-devs/s
+
+      - name: Configure Serverless Devs access
+        run: |
+          s config add \
+            --AccessKeyID "$ALIYUN_ACCESS_KEY_ID" \
+            --AccessKeySecret "$ALIYUN_ACCESS_KEY_SECRET" \
+            --AccountID "$ALIYUN_ACCOUNT_ID" \
+            --access default \
+            -f
+
+      - name: Deploy to Function Compute
+        run: s deploy -y --use-local
+
+      - name: Show deploy info
+        if: success()
+        run: s info || true

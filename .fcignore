@@ -1,0 +1,16 @@
+.git/
+.github/
+.s/
+.serverless/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+npm-debug.log*
+test/
+coverage/
+docs/
+*.md
+.gitignore
+.npmrc
