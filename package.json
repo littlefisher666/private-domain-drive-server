@@ -11,7 +11,8 @@
   "scripts": {
     "start": "node local.js",
     "dev": "node local.js",
-    "test": "node test/handler.test.js"
+    "test": "node test/handler.test.js",
+    "deploy": "s deploy -y --use-local"
   },
   "engines": {
     "node": ">=20"

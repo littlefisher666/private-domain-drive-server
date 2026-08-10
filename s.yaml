@@ -1,36 +1,29 @@
 edition: 3.0.0
 name: private-domain-drive-server
+access: default
 
 vars:
   region: cn-hangzhou
-  service:
-    name: private-domain-drive-service
-    description: Private Domain Drive FC service
-  function:
-    name: private-domain-drive-api
-    description: Session bootstrap and lightweight control-plane APIs
-    runtime: nodejs20
-    timeout: 10
-    memorySize: 512
-    diskSize: 512
-    instanceConcurrency: 10
-    caPort: 9000
+  functionName: private-domain-drive-api
 
 resources:
   private-domain-drive-api:
     component: fc3
     props:
       region: ${vars.region}
-      serviceName: ${vars.service.name}
-      description: ${vars.service.description}
-      functionName: ${vars.function.name}
-      runtime: ${vars.function.runtime}
+      functionName: ${vars.functionName}
+      description: Session bootstrap and lightweight control-plane APIs
+      runtime: nodejs20
       handler: index.handler
       code: ./
-      timeout: ${vars.function.timeout}
-      memorySize: ${vars.function.memorySize}
-      diskSize: ${vars.function.diskSize}
-      instanceConcurrency: ${vars.function.instanceConcurrency}
+      timeout: 10
+      memorySize: 512
+      diskSize: 512
+      cpu: 0.35
+      instanceConcurrency: 10
+      internetAccess: true
+      logConfig: auto
+      role: ${env(ALIYUN_FC_ROLE_ARN)}
       environmentVariables:
         OSS_BUCKET: private-domain-drive
         OSS_REGION: cn-hangzhou
@@ -39,7 +32,12 @@ resources:
         TEXT_PREVIEW_MAX_BYTES: "524288"
         MULTIPART_UPLOAD_THRESHOLD_BYTES: "10485760"
         ALLOWED_PREVIEW_EXTENSIONS: jpg,jpeg,png,gif,pdf,txt,md
-        STS_ASSUME_ROLE_ARN: ""
+        STS_ROLE_SESSION_NAME: private-domain-drive-session
+        STS_DURATION_SECONDS: "3600"
+        STS_ENDPOINT: sts.cn-hangzhou.aliyuncs.com
+        STS_ASSUME_ROLE_ARN: ${env(STS_ASSUME_ROLE_ARN)}
+        ALIBABA_CLOUD_ACCESS_KEY_ID: ${env(ALIBABA_CLOUD_ACCESS_KEY_ID)}
+        ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${env(ALIBABA_CLOUD_ACCESS_KEY_SECRET)}
       triggers:
         - triggerName: http-trigger
           triggerType: http
