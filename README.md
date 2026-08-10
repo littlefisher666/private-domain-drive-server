@@ -1,81 +1,203 @@
 # private-domain-drive-server
 
-私域网盘服务端仓库。
+私域网盘一期轻后端服务，部署在阿里云函数计算（FC）。
 
-## 当前状态
+服务端只负责控制面能力，不中转文件流量：
 
-当前已完成更接近真实部署形态的 `Node.js + 阿里云 FC` 项目骨架初始化。
+- 健康检查
+- 会话初始化 / 获取 STS 临时凭证
+- 刷新 STS 临时凭证
+- 当前用户能力查询
 
-## 计划方向
+客户端拿到 STS 后，直接访问 OSS 完成文件列表、上传、下载、删除与预览。
 
-- 阿里云函数计算 FC
-- Node.js
-- STS 凭证签发
-- 配置与能力信息下发
+## 接口一览
 
-## 当前结构
+| Method | Path | 说明 |
+| --- | --- | --- |
+| GET | /api/v1/health | 健康检查 |
+| POST | /api/v1/session/bootstrap | 初始化会话并签发 STS |
+| POST | /api/v1/session/refresh | 刷新 STS |
+| GET | /api/v1/me/capabilities | 查询当前用户能力 |
 
-- `index.js`：FC 入口
-- `local.js`：本地 HTTP 调试入口
-- `s.yaml`：Serverless Devs 部署描述
-- `src/handler.js`：统一请求入口
-- `src/routes/`：轻量路由分发
-- `src/handlers/`：接口 handler
-- `src/services/`：后续 STS、鉴权等服务层
-- `src/config/`：环境变量与业务配置读取
-- `src/utils/`：请求解析与统一响应
-
-## 已覆盖接口
-
-- `GET /api/v1/health`
-- `POST /api/v1/session/bootstrap`
-- `POST /api/v1/session/refresh`
-- `GET /api/v1/me/capabilities`
-
-其中 `session/bootstrap` 和 `session/refresh` 已接入真实 STS `AssumeRole` 调用。
-
-## 本地调试
-
-```bash
-npm run dev
-```
-
-默认监听：
+本地默认地址：
 
 ```text
 http://127.0.0.1:9000
 ```
 
-## 部署方向
+## 需要配置什么
 
-当前默认使用：
+一期要跑通 bootstrap / refresh，必须先准备阿里云 RAM + STS + OSS 相关配置。
 
-- 阿里云函数计算 FC
-- Serverless Devs
-- `s.yaml` 管理函数配置
+### 1. 阿里云侧前置条件
 
-后续接入真实 STS 时，优先在现有 `services/` 和 `config/` 上迭代，不再额外平行起一套结构。
+在开始填环境变量前，先确认云账号侧已经具备：
 
-## 环境变量
+1. 一个 OSS Bucket（例如 `private-domain-drive`）
+2. 一个可被 AssumeRole 的 RAM 角色，角色需具备该 Bucket 指定前缀的访问权限
+3. 一个用于调用 STS 的 RAM 用户（不要用主账号）
+4. 该 RAM 用户具备 `AliyunSTSAssumeRoleAccess`
+5. 目标 RAM 角色的信任策略允许上述 RAM 用户 AssumeRole
 
-请至少配置以下变量：
+建议权限边界：
+
+- 仅授权到目标 Bucket
+- 仅授权到业务前缀，例如 `shared/`
+- 不要给客户端长期高权限 AccessKey
+
+### 2. 必填环境变量
+
+| 变量名 | 是否必填 | 说明 | 示例 |
+| --- | --- | --- | --- |
+| ALIBABA_CLOUD_ACCESS_KEY_ID | 是 | 调用 STS 的 RAM 用户 AccessKeyId | LTAI5txxxxxxxx |
+| ALIBABA_CLOUD_ACCESS_KEY_SECRET | 是 | 调用 STS 的 RAM 用户 AccessKeySecret | xxxxxxxxxxxxxxxx |
+| STS_ASSUME_ROLE_ARN | 是 | 要扮演的 RAM 角色 ARN | acs:ram::1234567890123456:role/private-domain-drive-oss |
+
+未配置以上三项时：
+
+- `/api/v1/health`、`/api/v1/me/capabilities` 仍可正常返回
+- `/api/v1/session/bootstrap`、`/api/v1/session/refresh` 会返回 `503 SERVICE_UNAVAILABLE`
+
+### 3. 推荐配置项
+
+| 变量名 | 默认值 | 说明 |
+| --- | --- | --- |
+| STS_ROLE_SESSION_NAME | private-domain-drive-session | STS 会话名 |
+| STS_DURATION_SECONDS | 3600 | STS 有效期（秒） |
+| STS_ENDPOINT | sts.cn-hangzhou.aliyuncs.com | STS Endpoint |
+| OSS_BUCKET | private-domain-drive | 下发给客户端的 Bucket |
+| OSS_REGION | cn-hangzhou | OSS 地域 |
+| OSS_ENDPOINT | oss-cn-hangzhou.aliyuncs.com | OSS Endpoint |
+| OSS_ROOT_PREFIX | shared/ | 允许访问的根前缀 |
+| MULTIPART_UPLOAD_THRESHOLD_BYTES | 10485760 | 超过该大小建议分片上传（10MB） |
+| TEXT_PREVIEW_MAX_BYTES | 524288 | 文本预览最大字节数（512KB） |
+| ALLOWED_PREVIEW_EXTENSIONS | jpg,jpeg,png,gif,pdf,txt,md | 预览扩展名白名单 |
+| PORT | 9000 | 仅本地调试使用 |
+
+### 4. 本地配置方式
+
+仓库已提供 `.env.example`。可按下面步骤配置：
+
+```bash
+cp .env.example .env
+```
+
+然后编辑 `.env`，至少填好：
+
+```bash
+ALIBABA_CLOUD_ACCESS_KEY_ID=your_ram_user_access_key_id
+ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_ram_user_access_key_secret
+STS_ASSUME_ROLE_ARN=acs:ram::1234567890123456:role/your-oss-role
+```
+
+当前本地入口不会自动加载 `.env`，启动前请先导出环境变量，例如：
+
+```bash
+set -a
+source .env
+set +a
+npm run dev
+```
+
+也可以直接在 shell 中 export：
+
+```bash
+export ALIBABA_CLOUD_ACCESS_KEY_ID=...
+export ALIBABA_CLOUD_ACCESS_KEY_SECRET=...
+export STS_ASSUME_ROLE_ARN=...
+npm run dev
+```
+
+### 5. 部署到 FC 时要配置什么
+
+使用 Serverless Devs 部署：
+
+```bash
+s deploy
+```
+
+部署前请在以下位置补齐配置：
+
+1. `s.yaml` 的 `environmentVariables`
+2. 或函数控制台环境变量
+
+至少需要配置：
 
 - `ALIBABA_CLOUD_ACCESS_KEY_ID`
 - `ALIBABA_CLOUD_ACCESS_KEY_SECRET`
 - `STS_ASSUME_ROLE_ARN`
-- `STS_ROLE_SESSION_NAME`
 
-其他可选项可参考 `.env.example`。
+并确认 OSS 相关变量与真实资源一致：
 
-## 阿里云侧前提
+- `OSS_BUCKET`
+- `OSS_REGION`
+- `OSS_ENDPOINT`
+- `OSS_ROOT_PREFIX`
 
-根据阿里云官方文档，调用 `AssumeRole` 前至少需要满足：
+> 注意：不要把真实 AccessKey 提交进 Git。密钥只放在本地环境变量、FC 环境变量或密钥管理系统中。
 
-- 调用方使用 RAM 用户或 RAM 角色，不直接使用主账号
-- 调用方具备 `AliyunSTSAssumeRoleAccess`
-- 目标角色信任策略允许该调用方
+## 本地开发
 
-参考：
+```bash
+npm install
+npm run dev
+```
 
-- [AssumeRole 官方接口说明](https://www.alibabacloud.com/help/id/ram/developer-reference/api-sts-2015-04-01-assumerole)
-- [Node.js 凭证与 STS SDK 官方示例](https://www.alibabacloud.com/help/en/sdk/developer-reference/v2-manage-node-js-access-credentials)
+探活：
+
+```bash
+curl http://127.0.0.1:9000/api/v1/health
+```
+
+初始化会话：
+
+```bash
+curl -X POST http://127.0.0.1:9000/api/v1/session/bootstrap \
+  -H 'content-type: application/json' \
+  -d '{"platform":"macos","appVersion":"0.1.0"}'
+```
+
+## 测试
+
+```bash
+npm test
+```
+
+测试行为：
+
+- 未配置 STS 密钥时：health / capabilities 成功，bootstrap / refresh 期望 503
+- 配置完整 STS 密钥后：bootstrap / refresh 会走真实 AssumeRole
+
+## 目录结构
+
+```text
+.
+├── index.js                 # FC 入口
+├── local.js                 # 本地 HTTP 调试入口
+├── s.yaml                   # Serverless Devs 部署配置
+├── .env.example             # 环境变量示例
+├── src
+│   ├── handler.js           # 统一请求入口
+│   ├── routes/              # 路由
+│   ├── handlers/            # 接口实现
+│   ├── services/            # STS 服务
+│   ├── config/              # 配置与演示身份
+│   └── utils/               # 请求/响应/时间工具
+└── test/
+    └── handler.test.js
+```
+
+## 实现备注
+
+- 一期不强制登录态 Header，默认返回演示用户 `demo-user` / `member`
+- 普通成员默认能力：list / download / upload / preview 开启，delete 关闭
+- STS 会尽量附带最小化 Policy，限制到指定 bucket + rootPrefix
+- STS 过期时间统一格式化为 `yyyy-MM-dd HH:mm:ss`（UTC）
+- 文件上传下载不经本服务中转
+
+## 接口契约
+
+完整请求/响应字段定义见主仓库：
+
+`docs/接口.md`

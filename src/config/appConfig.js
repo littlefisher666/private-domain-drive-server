@@ -1,10 +1,12 @@
 function getAppConfig() {
+  const rootPrefix = normalizeRootPrefix(process.env.OSS_ROOT_PREFIX || "shared/");
+
   return {
     oss: {
       bucket: process.env.OSS_BUCKET || "private-domain-drive",
       region: process.env.OSS_REGION || "cn-hangzhou",
       endpoint: process.env.OSS_ENDPOINT || "oss-cn-hangzhou.aliyuncs.com",
-      rootPrefix: process.env.OSS_ROOT_PREFIX || "shared/",
+      rootPrefix,
     },
     constraints: {
       multipartUploadThresholdBytes: Number(
@@ -28,9 +30,17 @@ function getAppConfig() {
         process.env.STS_ROLE_SESSION_NAME || "private-domain-drive-session",
       durationSeconds: Number(process.env.STS_DURATION_SECONDS || 3600),
       ossBucket: process.env.OSS_BUCKET || "private-domain-drive",
-      ossRootPrefix: process.env.OSS_ROOT_PREFIX || "shared/",
+      ossRootPrefix: rootPrefix,
     },
   };
+}
+
+function normalizeRootPrefix(prefix) {
+  if (!prefix) {
+    return "shared/";
+  }
+
+  return prefix.endsWith("/") ? prefix : prefix + "/";
 }
 
 module.exports = {

@@ -1,6 +1,7 @@
 function parseHttpRequest(event, context) {
   const normalizedEvent = normalizeEvent(event);
-  const path = normalizedEvent.path || normalizedEvent.rawPath || "/";
+  const rawPath = normalizedEvent.path || normalizedEvent.rawPath || "/";
+  const path = stripQuery(rawPath);
   const method = (normalizedEvent.httpMethod || normalizedEvent.method || "GET").toUpperCase();
   const headers = normalizedEvent.headers || {};
   const requestId =
@@ -18,6 +19,15 @@ function parseHttpRequest(event, context) {
     rawBody: normalizedEvent.body || "",
     query: normalizedEvent.queryParameters || normalizedEvent.query || {},
   };
+}
+
+function stripQuery(path) {
+  if (!path || typeof path !== "string") {
+    return "/";
+  }
+
+  const queryIndex = path.indexOf("?");
+  return queryIndex >= 0 ? path.slice(0, queryIndex) || "/" : path;
 }
 
 function normalizeEvent(event) {

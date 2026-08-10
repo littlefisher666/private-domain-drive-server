@@ -1,4 +1,5 @@
 const { ConfigError } = require("../utils/configError");
+const { formatDateTime } = require("../utils/time");
 
 async function issueStsCredentials(stsConfig = {}) {
   validateStsConfig(stsConfig);
@@ -32,7 +33,7 @@ async function issueStsCredentials(stsConfig = {}) {
     accessKeyId: credentials.accessKeyId,
     accessKeySecret: credentials.accessKeySecret,
     securityToken: credentials.securityToken,
-    expiration: credentials.expiration,
+    expiration: formatDateTime(credentials.expiration),
   };
 }
 
@@ -76,15 +77,15 @@ function buildOssScopedPolicy(stsConfig) {
           "oss:AbortMultipartUpload",
           "oss:ListParts",
         ],
-        Resource: [`acs:oss:*:*:${bucket}/${rootPrefix}*`],
+        Resource: ["acs:oss:*:*:" + bucket + "/" + rootPrefix + "*"],
       },
       {
         Effect: "Allow",
         Action: ["oss:ListObjects"],
-        Resource: [`acs:oss:*:*:${bucket}`],
+        Resource: ["acs:oss:*:*:" + bucket],
         Condition: {
           StringLike: {
-            "oss:Prefix": [`${rootPrefix}*`],
+            "oss:Prefix": [rootPrefix + "*"],
           },
         },
       },
@@ -97,9 +98,11 @@ function normalizeRootPrefix(prefix) {
     return "";
   }
 
-  return prefix.endsWith("/") ? prefix : `${prefix}/`;
+  return prefix.endsWith("/") ? prefix : prefix + "/";
 }
 
 module.exports = {
   issueStsCredentials,
+  buildOssScopedPolicy,
+  normalizeRootPrefix,
 };

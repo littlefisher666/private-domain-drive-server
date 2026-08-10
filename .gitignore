@@ -13,6 +13,7 @@ coverage/
 # Environment
 .env
 .env.*
+!.env.example
 
 # Serverless / FC local artifacts
 .serverless/
