@@ -20,7 +20,7 @@ async function routeRequest(request) {
   }
 
   if (path === "/api/v1/me/capabilities" && method === "GET") {
-    return getCapabilitiesHandler();
+    return getCapabilitiesHandler(request);
   }
 
   return json(
