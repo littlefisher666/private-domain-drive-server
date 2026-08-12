@@ -1,8 +1,7 @@
 function parseHttpRequest(event, context) {
   const normalizedEvent = normalizeEvent(event);
-  const rawPath = normalizedEvent.path || normalizedEvent.rawPath || "/";
-  const path = stripQuery(rawPath);
-  const method = (normalizedEvent.httpMethod || normalizedEvent.method || "GET").toUpperCase();
+  const path = normalizePath(extractPath(normalizedEvent));
+  const method = extractMethod(normalizedEvent);
   const headers = normalizedEvent.headers || {};
   const requestId =
     normalizedEvent.requestContext?.requestId ||
@@ -21,18 +20,83 @@ function parseHttpRequest(event, context) {
   };
 }
 
-function stripQuery(path) {
+function extractPath(event) {
+  const candidates = [
+    event.path,
+    event.rawPath,
+    event.rawHttpPath,
+    event.requestContext?.http?.path,
+    event.requestContext?.path,
+    event.requestUri,
+    event.url,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return "/";
+}
+
+function extractMethod(event) {
+  const candidates = [
+    event.httpMethod,
+    event.method,
+    event.requestContext?.http?.method,
+    event.requestContext?.httpMethod,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim().toUpperCase();
+    }
+  }
+
+  return "GET";
+}
+
+function normalizePath(path) {
   if (!path || typeof path !== "string") {
     return "/";
   }
 
-  const queryIndex = path.indexOf("?");
-  return queryIndex >= 0 ? path.slice(0, queryIndex) || "/" : path;
+  let value = path.trim();
+
+  // 兼容完整 URL 或 FC 代理路径里带 host 的情况
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      value = new URL(value).pathname || "/";
+    } catch (_) {
+      // keep original value
+    }
+  }
+
+  const queryIndex = value.indexOf("?");
+  if (queryIndex >= 0) {
+    value = value.slice(0, queryIndex) || "/";
+  }
+
+  if (!value.startsWith("/")) {
+    value = `/${value}`;
+  }
+
+  // 统一去掉末尾斜杠，避免 /api/v1/health/ 匹配失败
+  if (value.length > 1 && value.endsWith("/")) {
+    value = value.slice(0, -1);
+  }
+
+  return value || "/";
 }
 
 function normalizeEvent(event) {
   if (!event) {
     return {};
+  }
+
+  if (Buffer.isBuffer(event)) {
+    event = event.toString("utf8");
   }
 
   if (typeof event === "string") {

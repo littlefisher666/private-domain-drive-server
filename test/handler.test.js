@@ -35,6 +35,49 @@ async function runHealthCheck() {
   assert.equal(payload.data.runtime, "nodejs20");
 }
 
+async function runFc3HttpEventCheck() {
+  // 阿里云 FC3 HTTP 触发器常见事件结构：path/method 在 requestContext.http
+  const result = await invoke({
+    version: "v1",
+    rawPath: "/api/v1/health/",
+    headers: {
+      host: "example.cn-hangzhou.fcapp.run",
+    },
+    queryParameters: {},
+    body: "",
+    isBase64Encoded: false,
+    requestContext: {
+      requestId: "1-fc3-health",
+      http: {
+        method: "GET",
+        path: "/api/v1/health/",
+        protocol: "HTTP/1.1",
+        sourceIp: "127.0.0.1",
+        userAgent: "curl/8.0.0",
+      },
+    },
+  });
+
+  assert.equal(result.statusCode, 200);
+  const payload = JSON.parse(result.body);
+  assert.equal(payload.code, "OK");
+  assert.equal(payload.requestId, "1-fc3-health");
+  assert.equal(payload.data.status, "up");
+
+  // 仅有 requestContext.http，无顶层 path/httpMethod 时也应能路由
+  const nestedOnly = await invoke({
+    requestContext: {
+      requestId: "1-fc3-nested-only",
+      http: {
+        method: "GET",
+        path: "/api/v1/me/capabilities",
+      },
+    },
+  });
+  assert.equal(nestedOnly.statusCode, 200);
+  assert.equal(JSON.parse(nestedOnly.body).code, "OK");
+}
+
 async function runCapabilitiesCheck() {
   const result = await invoke({
     path: "/api/v1/me/capabilities",
@@ -53,7 +96,7 @@ async function runCapabilitiesCheck() {
     list: true,
     download: true,
     upload: true,
-    delete: false,
+    delete: true,
     preview: true,
   });
 }
@@ -77,13 +120,36 @@ async function runBootstrapValidationCheck() {
   });
   assert.equal(arrayBody.statusCode, 400);
   assert.equal(JSON.parse(arrayBody.body).code, "BAD_REQUEST");
+
+  const missingCredentials = await invoke({
+    path: "/api/v1/session/bootstrap",
+    httpMethod: "POST",
+    body: JSON.stringify({ platform: "macos" }),
+    requestContext: { requestId: "test-bootstrap-missing-account" },
+  });
+  assert.equal(missingCredentials.statusCode, 400);
+  assert.equal(JSON.parse(missingCredentials.body).code, "BAD_REQUEST");
+
+  const unauthorized = await invoke({
+    path: "/api/v1/session/bootstrap",
+    httpMethod: "POST",
+    body: JSON.stringify({ account: "admin", password: "wrong" }),
+    requestContext: { requestId: "test-bootstrap-unauthorized" },
+  });
+  assert.equal(unauthorized.statusCode, 401);
+  assert.equal(JSON.parse(unauthorized.body).code, "UNAUTHORIZED");
 }
 
 async function runBootstrapCheck() {
   const result = await invoke({
     path: "/api/v1/session/bootstrap",
     httpMethod: "POST",
-    body: JSON.stringify({ platform: "macos", appVersion: "0.1.0" }),
+    body: JSON.stringify({
+      account: "admin",
+      password: "123456",
+      platform: "macos",
+      appVersion: "0.1.0",
+    }),
     requestContext: { requestId: "test-bootstrap" },
   });
 
@@ -93,10 +159,14 @@ async function runBootstrapCheck() {
     assert.equal(result.statusCode, 200);
     assert.equal(payload.code, "OK");
     assert.equal(payload.data.oss.rootPrefix, "shared/");
-    assert.equal(payload.data.user.userId, "demo-user");
+    assert.equal(payload.data.user.userId, "admin");
+    assert.equal(payload.data.user.role, "member");
     assert.equal(typeof payload.data.credentials.accessKeyId, "string");
     assert.match(payload.data.credentials.expiration, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     assert.equal(payload.data.constraints.multipartUploadThresholdBytes, 10485760);
+    assert.equal(typeof payload.data.stsBroker.accessKeyId, "string");
+    assert.equal(typeof payload.data.stsBroker.roleArn, "string");
+    assert.equal(typeof payload.data.stsBroker.policy, "string");
     return;
   }
 
@@ -160,6 +230,7 @@ function runUtilityChecks() {
 async function main() {
   runUtilityChecks();
   await runHealthCheck();
+  await runFc3HttpEventCheck();
   await runCapabilitiesCheck();
   await runBootstrapValidationCheck();
   await runBootstrapCheck();
