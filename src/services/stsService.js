@@ -93,6 +93,30 @@ function buildOssScopedPolicy(stsConfig) {
   });
 }
 
+function buildStsBrokerPayload(stsBrokerConfig = {}) {
+  if (!stsBrokerConfig.accessKeyId || !stsBrokerConfig.accessKeySecret) {
+    throw new ConfigError("Missing STS broker access key");
+  }
+
+  if (!stsBrokerConfig.roleArn) {
+    throw new ConfigError("Missing STS_ASSUME_ROLE_ARN");
+  }
+
+  return {
+    accessKeyId: stsBrokerConfig.accessKeyId,
+    accessKeySecret: stsBrokerConfig.accessKeySecret,
+    endpoint: stsBrokerConfig.endpoint || "sts.cn-hangzhou.aliyuncs.com",
+    roleArn: stsBrokerConfig.roleArn,
+    roleSessionName:
+      stsBrokerConfig.roleSessionName || "private-domain-drive-session",
+    durationSeconds: Number(stsBrokerConfig.durationSeconds || 3600),
+    policy: buildOssScopedPolicy({
+      ossBucket: stsBrokerConfig.ossBucket,
+      ossRootPrefix: stsBrokerConfig.ossRootPrefix,
+    }),
+  };
+}
+
 function normalizeRootPrefix(prefix) {
   if (!prefix) {
     return "";
@@ -104,5 +128,6 @@ function normalizeRootPrefix(prefix) {
 module.exports = {
   issueStsCredentials,
   buildOssScopedPolicy,
+  buildStsBrokerPayload,
   normalizeRootPrefix,
 };

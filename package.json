@@ -9,7 +9,7 @@
     "@alicloud/sts20150401": "^1.1.3"
   },
   "scripts": {
-    "start": "node local.js",
+    "start": "NODE_ENV=production node local.js",
     "dev": "node local.js",
     "test": "node test/handler.test.js",
     "deploy": "s deploy -y --use-local"
