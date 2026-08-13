@@ -4,10 +4,10 @@ access: default
 
 vars:
   region: cn-hangzhou
-  functionName: private-domain-drive-api
+  functionName: private-domain-drive
 
 resources:
-  private-domain-drive-api:
+  private-domain-drive:
     component: fc3
     props:
       region: ${vars.region}
