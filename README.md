@@ -100,16 +100,15 @@ npm run dev
 
 - 文件：`.github/workflows/deploy-fc.yml`
 - 触发：
-  - `pull_request` → 只跑测试
-  - `push` 到 `master` / `main` → 测试通过后自动部署
-  - `workflow_dispatch` → 手动部署
+  - 仅支持 `workflow_dispatch` 手动触发
+  - 手动触发后先跑测试，测试通过后再部署
 
 部署工具：
 
 - Serverless Devs（`@serverless-devs/s`）
 - 配置文件：`s.yaml`
 - 默认地域：`cn-hangzhou`
-- 函数名：`private-domain-drive-api`
+- 函数名：`private-domain-drive`
 
 ### 1. 先在 GitHub 配置 Secrets
 
@@ -155,7 +154,7 @@ npm run dev
 ### 3. 打通后如何发布
 
 1. 在 GitHub 配好上述 Secrets
-2. 合并代码到 `master` / `main`，或在 Actions 页手动 `Run workflow`
+2. 在 Actions 页打开 `Deploy FC`，点击 `Run workflow`
 3. 流水线会执行：
    - `npm ci`
    - `npm test`
