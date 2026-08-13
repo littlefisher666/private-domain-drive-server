@@ -17,9 +17,9 @@ resources:
       handler: index.handler
       code: ./
       timeout: 10
-      memorySize: 512
+      memorySize: 128
       diskSize: 512
-      cpu: 0.35
+      cpu: 0.05
       instanceConcurrency: 10
       internetAccess: true
       logConfig: auto
