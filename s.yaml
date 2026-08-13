@@ -12,7 +12,7 @@ resources:
     props:
       region: ${vars.region}
       functionName: ${vars.functionName}
-      description: Session bootstrap and lightweight control-plane APIs
+      description: 私域网盘FC函数
       runtime: nodejs20
       handler: index.handler
       code: ./
