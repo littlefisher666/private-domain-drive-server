@@ -38,16 +38,3 @@ resources:
         STS_ASSUME_ROLE_ARN: ${env(STS_ASSUME_ROLE_ARN)}
         ALIBABA_CLOUD_ACCESS_KEY_ID: ${env(ALIBABA_CLOUD_ACCESS_KEY_ID)}
         ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${env(ALIBABA_CLOUD_ACCESS_KEY_SECRET)}
-      triggers:
-        - triggerName: http-trigger
-          triggerType: http
-          qualifier: LATEST
-          triggerConfig:
-            authType: anonymous
-            methods:
-              - GET
-              - POST
-            disableURLInternet: false
-            protocols:
-              - HTTP
-              - HTTPS
