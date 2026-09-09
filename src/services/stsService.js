@@ -72,6 +72,7 @@ function buildOssScopedPolicy(stsConfig) {
           "oss:ListObjects",
           "oss:ListObjectVersions",
           "oss:GetObject",
+          "oss:ProcessObject",
           "oss:PutObject",
           "oss:DeleteObject",
           "oss:AbortMultipartUpload",

@@ -221,6 +221,7 @@ function runUtilityChecks() {
   );
   assert.equal(policy.Version, "1");
   assert.equal(policy.Statement.length, 2);
+  assert.ok(policy.Statement[0].Action.includes("oss:ProcessObject"));
   assert.equal(
     policy.Statement[0].Resource[0],
     "acs:oss:*:*:private-domain-drive/shared/*"
