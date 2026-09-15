@@ -1,261 +1,142 @@
 # private-domain-drive-server
 
-私域网盘一期轻后端服务，部署在阿里云函数计算（FC，国内地域默认 `cn-hangzhou`）。
+私域网盘一期控制面服务，运行在阿里云函数计算 FC 3.0（Node.js 20）。服务端仅校验登录、签发 / 下发 STS 与 OSS 配置、提供探活和能力信息；文件列表、上传、下载、删除、缩略图和图片预览均由客户端持 STS 凭证直连 OSS，不经过本服务中转。
 
-服务端只负责控制面能力，不中转文件流量：
+## 当前能力
 
-- 健康检查
-- 会话初始化 / 获取 STS 临时凭证
-- 刷新 STS 临时凭证
-- 当前用户能力查询
+- `GET /api/v1/health`：返回服务状态、版本和运行时，不依赖 STS 配置。
+- `POST /api/v1/session/bootstrap`：校验演示账号口令，调用阿里云 STS `AssumeRole`，下发临时凭证、受限 OSS 配置、能力与客户端约束，并下发 `stsBroker`。
+- `POST /api/v1/session/refresh`：通过服务端运行时凭证签发新的 STS 临时凭证，作为备用刷新接口。
+- `GET /api/v1/me/capabilities`：返回固定的演示成员与能力信息。
+- STS Policy 限制到配置的 Bucket 和 `OSS_ROOT_PREFIX`，授权对象列举、读写、删除、分片上传及 OSS 图片处理所需操作。
 
-客户端拿到 STS 后，直接访问 OSS 完成文件列表、上传、下载、删除与预览。
+当前身份实现是演示用途：`admin/123456` 与 `member/123456` 均可登录，且权限一致（list、download、upload、delete、preview 均为 `true`）。`/api/v1/session/refresh` 和 `/api/v1/me/capabilities` 当前不校验登录态；在接入真实身份系统前，不应把它们作为用户级授权边界。最终的对象访问权限仍以 RAM / STS Policy 为准。
 
-## 接口一览
+## 接口
 
-| Method | Path | 说明 |
+| 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | /api/v1/health | 健康检查 |
-| POST | /api/v1/session/bootstrap | 初始化会话并签发 STS |
-| POST | /api/v1/session/refresh | 刷新 STS |
-| GET | /api/v1/me/capabilities | 查询当前用户能力 |
+| GET | `/api/v1/health` | 探活与基础运行时信息 |
+| POST | `/api/v1/session/bootstrap` | 登录并初始化会话 |
+| POST | `/api/v1/session/refresh` | 服务端备用 STS 刷新 |
+| GET | `/api/v1/me/capabilities` | 演示能力信息 |
 
-本地默认地址：
+所有响应使用统一信封：成功为 `{ "code": "OK", "message": "success", "requestId", "data" }`；错误包含 `code`、`message` 与 `requestId`。路由接受末尾带 `/` 的路径。完整字段、错误码和会话流程见主仓库 [docs/接口.md](../docs/接口.md)。
 
-```text
-http://127.0.0.1:9000
-```
+## 前置条件
 
-## 需要配置什么
+运行 bootstrap / refresh 前，阿里云侧需要准备：
 
-一期要跑通 bootstrap / refresh，必须先准备阿里云 RAM + STS + OSS 相关配置。
+1. 目标 OSS Bucket，以及建议限制到业务前缀（默认 `shared/`）的访问策略。
+2. 可被 `AssumeRole` 的 RAM 角色；其信任策略允许 STS 调用方扮演。
+3. 用于调用 STS 的 RAM 用户或专用 STS Broker RAM 用户，具备 `AliyunSTSAssumeRoleAccess`。
+4. FC 函数角色（部署配置中由 `ALIYUN_FC_ROLE_ARN` 提供），用于 FC 基础运行和日志能力。
 
-### 1. 阿里云侧前置条件
+不要使用主账号 AccessKey，也不要将真实密钥写入代码或提交到 Git。
 
-在开始填环境变量前，先确认云账号侧已经具备：
+## 运行时配置
 
-1. 一个 OSS Bucket（例如 `private-domain-drive`）
-2. 一个可被 AssumeRole 的 RAM 角色，角色需具备该 Bucket 指定前缀的访问权限
-3. 一个用于调用 STS 的 RAM 用户（不要用主账号）
-4. 该 RAM 用户具备 `AliyunSTSAssumeRoleAccess`
-5. 目标 RAM 角色的信任策略允许上述 RAM 用户 AssumeRole
-6. 一个 FC 函数角色（用于日志等基础能力），通常可使用 `AliyunFCDefaultRole` 或自定义角色
-
-建议权限边界：
-
-- 仅授权到目标 Bucket
-- 仅授权到业务前缀，例如 `shared/`
-- 不要给客户端长期高权限 AccessKey
-
-### 2. 本地 / 运行时环境变量
-
-| 变量名 | 是否必填 | 说明 | 示例 |
-| --- | --- | --- | --- |
-| ALIBABA_CLOUD_ACCESS_KEY_ID | 是 | 调用 STS 的 RAM 用户 AccessKeyId | LTAI5txxxxxxxx |
-| ALIBABA_CLOUD_ACCESS_KEY_SECRET | 是 | 调用 STS 的 RAM 用户 AccessKeySecret | xxxxxxxxxxxxxxxx |
-| STS_ASSUME_ROLE_ARN | 是 | 要扮演的 RAM 角色 ARN | acs:ram::1234567890123456:role/private-domain-drive-oss |
-| STS_ROLE_SESSION_NAME | 否 | STS 会话名 | private-domain-drive-session |
-| STS_DURATION_SECONDS | 否 | STS 有效期（秒） | 3600 |
-| STS_ENDPOINT | 否 | STS Endpoint | sts.cn-hangzhou.aliyuncs.com |
-| OSS_BUCKET | 否 | 下发给客户端的 Bucket | private-domain-drive |
-| OSS_REGION | 否 | OSS 地域 | cn-hangzhou |
-| OSS_ENDPOINT | 否 | OSS Endpoint | oss-cn-hangzhou.aliyuncs.com |
-| OSS_ROOT_PREFIX | 否 | 允许访问的根前缀 | shared/ |
-| MULTIPART_UPLOAD_THRESHOLD_BYTES | 否 | 超过该大小建议分片上传 | 10485760 |
-| TEXT_PREVIEW_MAX_BYTES | 否 | 文本预览最大字节数 | 524288 |
-| ALLOWED_PREVIEW_EXTENSIONS | 否 | 预览扩展名白名单 | jpg,jpeg,png,gif,pdf,txt,md |
-| PORT | 否 | 仅本地调试使用 | 9000 |
-
-未配置 STS 三项必填项时：
-
-- `/api/v1/health`、`/api/v1/me/capabilities` 仍可正常返回
-- `/api/v1/session/bootstrap`、`/api/v1/session/refresh` 会返回 `503 SERVICE_UNAVAILABLE`
-
-### 3. 本地配置方式
+复制示例并导出环境变量：
 
 ```bash
 cp .env.example .env
-```
-
-编辑 `.env`，至少填好：
-
-```bash
-ALIBABA_CLOUD_ACCESS_KEY_ID=your_ram_user_access_key_id
-ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_ram_user_access_key_secret
-STS_ASSUME_ROLE_ARN=acs:ram::1234567890123456:role/your-oss-role
-```
-
-当前本地入口不会自动加载 `.env`，启动前请先导出：
-
-```bash
 set -a
 source .env
 set +a
-npm run dev
 ```
 
-## GitHub Actions CI/CD 发布到国内 FC
+`.env` 不会被 `node local.js` 自动加载。关键变量如下：
 
-仓库已内置 GitHub Actions 流水线：
-
-- 文件：`.github/workflows/deploy-fc.yml`
-- 触发：
-  - 仅支持 `workflow_dispatch` 手动触发
-  - 手动触发后先跑测试，测试通过后再部署
-
-部署工具：
-
-- Serverless Devs（`@serverless-devs/s`）
-- 配置文件：`s.yaml`
-- 默认地域：`cn-hangzhou`
-- 函数名：`private-domain-drive`
-
-### 1. 先在 GitHub 配置 Secrets
-
-进入仓库：
-
-`Settings → Secrets and variables → Actions → New repository secret`
-
-请配置以下 Secrets：
-
-| Secret 名称 | 用途 | 说明 |
+| 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| ALIYUN_ACCESS_KEY_ID | 部署 | 有 FC 部署权限的 RAM 用户 AK |
-| ALIYUN_ACCESS_KEY_SECRET | 部署 | 对应 SK |
-| ALIYUN_ACCOUNT_ID | 部署 | 阿里云主账号 ID（纯数字） |
-| ALIYUN_FC_ROLE_ARN | 部署 | FC 函数角色 ARN，例如 `acs:ram::1234567890123456:role/AliyunFCDefaultRole` |
-| ALIBABA_CLOUD_ACCESS_KEY_ID | 运行时 | 写入 FC 环境变量，用于 AssumeRole |
-| ALIBABA_CLOUD_ACCESS_KEY_SECRET | 运行时 | 写入 FC 环境变量 |
-| STS_ASSUME_ROLE_ARN | 运行时 | 写入 FC 环境变量，OSS 访问角色 ARN |
+| `ALIBABA_CLOUD_ACCESS_KEY_ID` | 是 | 服务端调用 STS 的 RAM AccessKeyId |
+| `ALIBABA_CLOUD_ACCESS_KEY_SECRET` | 是 | 服务端调用 STS 的 RAM AccessKeySecret |
+| `STS_ASSUME_ROLE_ARN` | 是 | OSS 业务角色 ARN |
+| `STS_BROKER_ACCESS_KEY_ID` / `STS_BROKER_ACCESS_KEY_SECRET` | 否 | 下发给客户端用于直连 STS 的专用受限 AK；留空时回退到服务端 STS AK |
+| `STS_ROLE_SESSION_NAME` | 否 | 会话名，默认 `private-domain-drive-session` |
+| `STS_DURATION_SECONDS` | 否 | STS 有效期秒数，默认 `3600` |
+| `STS_ENDPOINT` | 否 | 默认 `sts.cn-hangzhou.aliyuncs.com` |
+| `OSS_BUCKET` / `OSS_REGION` / `OSS_ENDPOINT` | 否 | 下发给客户端的 OSS 连接信息 |
+| `OSS_ROOT_PREFIX` | 否 | 受限对象前缀，默认 `shared/` |
+| `MULTIPART_UPLOAD_THRESHOLD_BYTES` | 否 | 分片上传建议阈值，默认 10 MiB |
+| `TEXT_PREVIEW_MAX_BYTES` | 否 | 文本预览上限，默认 512 KiB |
+| `ALLOWED_PREVIEW_EXTENSIONS` | 否 | 逗号分隔的预览扩展名白名单 |
+| `PORT` | 否 | 本地 HTTP 端口，默认 `9000` |
 
-说明：
+缺少 STS 必填配置时，health 和 capabilities 仍可用；bootstrap / refresh 返回 `503 SERVICE_UNAVAILABLE`。STS 过期时间以 `yyyy-MM-dd HH:mm:ss` 的 UTC 时间格式返回。
 
-1. **部署凭证** 和 **运行时凭证** 可以是同一个 RAM 用户，也可以拆分。
-2. 若拆分，建议：
-   - 部署账号：具备 FC 发布权限
-   - 运行时账号：仅具备 `sts:AssumeRole`
-3. `ALIYUN_ACCOUNT_ID` 可在阿里云控制台右上角账号中心查看。
-4. 不要把真实 AccessKey 写进代码或提交到 Git。
+## 本地开发与验证
 
-### 2. 部署 RAM 用户最小权限建议
-
-部署用 RAM 用户建议至少具备：
-
-- 函数计算 FC 的创建 / 更新 / 查询权限
-- 如使用 `logConfig: auto`，还需允许 FC 关联日志相关资源
-
-可先用较宽的 `AliyunFCFullAccess` 打通流程，后续再收敛到自定义策略。
-
-运行时 RAM 用户建议：
-
-- `AliyunSTSAssumeRoleAccess`
-- 目标角色信任策略允许该用户 AssumeRole
-
-### 3. 打通后如何发布
-
-1. 在 GitHub 配好上述 Secrets
-2. 在 Actions 页打开 `Deploy FC`，点击 `Run workflow`
-3. 流水线会执行：
-   - `npm ci`
-   - `npm test`
-   - `npm ci --omit=dev`
-   - 配置 Serverless Devs
-   - `s deploy -y --use-local`
-4. 部署成功后，到阿里云 FC 控制台查看函数与 HTTP 触发器地址
-
-### 4. 本地手动部署（可选）
-
-先安装 Serverless Devs：
+要求 Node.js 20 或更高版本：
 
 ```bash
-npm install -g @serverless-devs/s
-```
-
-配置密钥：
-
-```bash
-s config add \
-  --AccessKeyID "$ALIYUN_ACCESS_KEY_ID" \
-  --AccessKeySecret "$ALIYUN_ACCESS_KEY_SECRET" \
-  --AccountID "$ALIYUN_ACCOUNT_ID" \
-  --access default \
-  -f
-```
-
-导出运行时环境变量后部署：
-
-```bash
-export ALIYUN_FC_ROLE_ARN=acs:ram::1234567890123456:role/AliyunFCDefaultRole
-export ALIBABA_CLOUD_ACCESS_KEY_ID=...
-export ALIBABA_CLOUD_ACCESS_KEY_SECRET=...
-export STS_ASSUME_ROLE_ARN=...
-npm ci --omit=dev
-npm run deploy
-```
-
-## 本地开发
-
-```bash
-npm install
+npm ci
 npm run dev
 ```
 
-探活：
+本地地址为 `http://127.0.0.1:9000`。可先验证探活：
 
 ```bash
 curl http://127.0.0.1:9000/api/v1/health
 ```
 
-初始化会话：
+配置 STS 后可验证会话初始化：
 
 ```bash
 curl -X POST http://127.0.0.1:9000/api/v1/session/bootstrap \
   -H 'content-type: application/json' \
-  -d '{"platform":"macos","appVersion":"0.1.0"}'
+  -d '{"account":"admin","password":"123456","platform":"macos","appVersion":"0.1.0"}'
 ```
 
-## 测试
+运行测试：
 
 ```bash
 npm test
 ```
 
-测试行为：
+未设置 STS 配置时，测试会断言 bootstrap / refresh 返回 503；设置完整配置后，这两项测试会发起真实 `AssumeRole` 请求。
 
-- 未配置 STS 密钥时：health / capabilities 成功，bootstrap / refresh 期望 503
-- 配置完整 STS 密钥后：bootstrap / refresh 会走真实 AssumeRole
+## 部署到阿里云 FC
 
-## 目录结构
+部署定义在 `s.yaml`：默认地域 `cn-hangzhou`、函数名 `private-domain-drive`、运行时 `nodejs20`、128 MB 内存、10 秒超时。GitHub Actions 工作流 `.github/workflows/deploy-fc.yml` 仅支持手动触发，并在部署前运行测试。
+
+在 GitHub Actions Secrets 中配置：
+
+| Secret | 用途 |
+| --- | --- |
+| `ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET` / `ALIYUN_ACCOUNT_ID` | Serverless Devs 部署凭证 |
+| `ALIYUN_FC_ROLE_ARN` | FC 函数角色 ARN |
+| `ALIBABA_CLOUD_ACCESS_KEY_ID` / `ALIBABA_CLOUD_ACCESS_KEY_SECRET` | FC 运行时 STS 调用凭证 |
+| `STS_ASSUME_ROLE_ARN` | FC 运行时扮演的 OSS 角色 ARN |
+
+工作流会依次执行 `npm ci`、`npm test`、`npm ci --omit=dev` 和 `s deploy -y --use-local`。本地手动部署时先安装并配置 Serverless Devs，再导出上述部署与运行时变量：
+
+```bash
+npm install -g @serverless-devs/s
+s config add \
+  --AccessKeyID "$ALIYUN_ACCESS_KEY_ID" \
+  --AccessKeySecret "$ALIYUN_ACCESS_KEY_SECRET" \
+  --AccountID "$ALIYUN_ACCOUNT_ID" \
+  --access default -f
+npm ci --omit=dev
+npm run deploy
+```
+
+## 目录概览
 
 ```text
 .
-├── .github/workflows/deploy-fc.yml  # GitHub Actions 发布流水线
-├── index.js                         # FC 入口
-├── local.js                         # 本地 HTTP 调试入口
-├── s.yaml                           # Serverless Devs 部署配置
-├── .fcignore                        # 上传 FC 时忽略文件
-├── .env.example                     # 环境变量示例
-├── src
-│   ├── handler.js
-│   ├── routes/
-│   ├── handlers/
-│   ├── services/
-│   ├── config/
-│   └── utils/
-└── test/
-    └── handler.test.js
+├── index.js                    # FC 入口
+├── local.js                    # 本地 HTTP 入口
+├── s.yaml                      # Serverless Devs 配置
+├── .env.example                # 运行时变量示例
+├── .github/workflows/deploy-fc.yml
+├── src/
+│   ├── handler.js              # FC 事件解析与错误处理
+│   ├── routes/                 # 路由
+│   ├── handlers/               # health、session、capabilities
+│   ├── services/stsService.js  # STS 与受限 OSS Policy
+│   ├── config/                 # 环境配置和演示身份
+│   └── utils/                  # 请求与响应工具
+└── test/handler.test.js        # 路由、校验与 STS 配置测试
 ```
-
-## 实现备注
-
-- 一期不强制登录态 Header，默认返回演示用户 `demo-user` / `member`
-- 普通成员默认能力：list / download / upload / preview 开启，delete 关闭
-- STS 会尽量附带最小化 Policy，限制到指定 bucket + rootPrefix
-- STS 过期时间统一格式化为 `yyyy-MM-dd HH:mm:ss`（UTC）
-- 文件上传下载不经本服务中转
-
-## 接口契约
-
-完整请求/响应字段定义见主仓库：
-
-`docs/接口.md`
