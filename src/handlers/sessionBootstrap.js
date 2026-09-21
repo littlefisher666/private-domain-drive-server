@@ -1,7 +1,7 @@
 const { getAppConfig } = require("../config/appConfig");
 const {
-  authenticateDemoUser,
-  getCapabilitiesForRole,
+  authenticateUser,
+  getDefaultCapabilities,
 } = require("../config/identity");
 const {
   buildStsBrokerPayload,
@@ -31,7 +31,18 @@ async function bootstrapSessionHandler(request) {
     });
   }
 
-  const identity = authenticateDemoUser(account, password);
+  let identity;
+  try {
+    identity = await authenticateUser(account, password, config.oss);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      return serviceUnavailable({
+        message: err.message,
+        requestId: request.requestId,
+      });
+    }
+    throw err;
+  }
   if (!identity) {
     return error({
       code: "UNAUTHORIZED",
@@ -66,10 +77,10 @@ async function bootstrapSessionHandler(request) {
       user: {
         userId: identity.userId,
         displayName: identity.displayName,
-        role: identity.role,
         account: identity.account,
+        mustResetPassword: identity.mustResetPassword,
       },
-      capabilities: getCapabilitiesForRole(identity.role),
+      capabilities: getDefaultCapabilities(),
       constraints: config.constraints,
     },
     request.requestId

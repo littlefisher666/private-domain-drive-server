@@ -11,7 +11,7 @@
   "scripts": {
     "start": "NODE_ENV=production node local.js",
     "dev": "node local.js",
-    "test": "node test/handler.test.js",
+    "test": "node test/identity.test.js && node test/handler.test.js",
     "deploy": "s deploy -y --use-local"
   },
   "engines": {

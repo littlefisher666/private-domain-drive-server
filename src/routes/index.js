@@ -3,6 +3,7 @@ const { healthHandler } = require("../handlers/health");
 const { bootstrapSessionHandler } = require("../handlers/sessionBootstrap");
 const { refreshSessionHandler } = require("../handlers/sessionRefresh");
 const { getCapabilitiesHandler } = require("../handlers/capabilities");
+const { changePasswordHandler } = require("../handlers/passwordChange");
 
 async function routeRequest(request) {
   const { path, method } = request;
@@ -17,6 +18,10 @@ async function routeRequest(request) {
 
   if (path === "/api/v1/session/refresh" && method === "POST") {
     return refreshSessionHandler(request);
+  }
+
+  if (path === "/api/v1/session/password" && method === "POST") {
+    return changePasswordHandler(request);
   }
 
   if (path === "/api/v1/me/capabilities" && method === "GET") {
