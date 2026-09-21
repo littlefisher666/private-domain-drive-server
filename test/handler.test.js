@@ -89,8 +89,7 @@ async function runCapabilitiesCheck() {
   const payload = JSON.parse(result.body);
   assert.equal(payload.code, "OK");
   assert.equal(payload.requestId, "test-capabilities");
-  assert.equal(payload.data.userId, "demo-user");
-  assert.equal(payload.data.role, "member");
+  assert.equal(payload.data.userId, null);
   assert.equal(payload.data.rootPrefix, "shared/");
   assert.deepEqual(payload.data.capabilities, {
     list: true,
@@ -136,8 +135,8 @@ async function runBootstrapValidationCheck() {
     body: JSON.stringify({ account: "admin", password: "wrong" }),
     requestContext: { requestId: "test-bootstrap-unauthorized" },
   });
-  assert.equal(unauthorized.statusCode, 401);
-  assert.equal(JSON.parse(unauthorized.body).code, "UNAUTHORIZED");
+  assert.equal(unauthorized.statusCode, 503);
+  assert.equal(JSON.parse(unauthorized.body).code, "SERVICE_UNAVAILABLE");
 }
 
 async function runBootstrapCheck() {
@@ -160,7 +159,6 @@ async function runBootstrapCheck() {
     assert.equal(payload.code, "OK");
     assert.equal(payload.data.oss.rootPrefix, "shared/");
     assert.equal(payload.data.user.userId, "admin");
-    assert.equal(payload.data.user.role, "member");
     assert.equal(typeof payload.data.credentials.accessKeyId, "string");
     assert.match(payload.data.credentials.expiration, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     assert.equal(payload.data.constraints.multipartUploadThresholdBytes, 10485760);
@@ -194,6 +192,37 @@ async function runRefreshCheck() {
 
   assert.equal(result.statusCode, 503);
   assert.equal(payload.code, "SERVICE_UNAVAILABLE");
+}
+
+async function runPasswordChangeValidationCheck() {
+  const missingBody = await invoke({
+    path: "/api/v1/session/password",
+    httpMethod: "POST",
+    requestContext: { requestId: "test-password-missing-body" },
+  });
+  assert.equal(missingBody.statusCode, 400);
+  assert.equal(JSON.parse(missingBody.body).code, "BAD_REQUEST");
+
+  const missingField = await invoke({
+    path: "/api/v1/session/password",
+    httpMethod: "POST",
+    body: JSON.stringify({ account: "admin", currentPassword: "old" }),
+    requestContext: { requestId: "test-password-missing-field" },
+  });
+  assert.equal(missingField.statusCode, 400);
+
+  const shortPassword = await invoke({
+    path: "/api/v1/session/password",
+    httpMethod: "POST",
+    body: JSON.stringify({
+      account: "admin",
+      currentPassword: "old",
+      newPassword: "short",
+    }),
+    requestContext: { requestId: "test-password-short" },
+  });
+  assert.equal(shortPassword.statusCode, 400);
+  assert.equal(JSON.parse(shortPassword.body).code, "BAD_REQUEST");
 }
 
 async function runNotFoundCheck() {
@@ -236,6 +265,7 @@ async function main() {
   await runBootstrapValidationCheck();
   await runBootstrapCheck();
   await runRefreshCheck();
+  await runPasswordChangeValidationCheck();
   await runNotFoundCheck();
   console.log("All handler tests passed");
 }

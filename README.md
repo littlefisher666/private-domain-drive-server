@@ -5,12 +5,32 @@
 ## 当前能力
 
 - `GET /api/v1/health`：返回服务状态、版本和运行时，不依赖 STS 配置。
-- `POST /api/v1/session/bootstrap`：校验演示账号口令，调用阿里云 STS `AssumeRole`，下发临时凭证、受限 OSS 配置、能力与客户端约束，并下发 `stsBroker`。
+- `POST /api/v1/session/bootstrap`：从 OSS 用户 JSON 校验账号口令，调用阿里云 STS `AssumeRole`，下发临时凭证、受限 OSS 配置、能力与客户端约束，并下发 `stsBroker`。
 - `POST /api/v1/session/refresh`：通过服务端运行时凭证签发新的 STS 临时凭证，作为备用刷新接口。
-- `GET /api/v1/me/capabilities`：返回固定的演示成员与能力信息。
+- `GET /api/v1/me/capabilities`：返回共享空间能力信息；当前接口仍未绑定登录态。
 - STS Policy 限制到配置的 Bucket 和 `OSS_ROOT_PREFIX`，授权对象列举、读写、删除、分片上传及 OSS 图片处理所需操作。
 
-当前身份实现是演示用途：`admin/123456` 与 `member/123456` 均可登录，且权限一致（list、download、upload、delete、preview 均为 `true`）。`/api/v1/session/refresh` 和 `/api/v1/me/capabilities` 当前不校验登录态；在接入真实身份系统前，不应把它们作为用户级授权边界。最终的对象访问权限仍以 RAM / STS Policy 为准。
+用户信息固定从 OSS 对象 `config/users.json` 读取。该对象位于网盘展示目录之外。JSON 可以是用户数组，也可以是 `{ "users": [...] }`，每个用户至少包含 `account`、`password`、`userId`，可选 `displayName`、`mustResetPassword`。`password` 字段保存 Node.js `scrypt` 哈希值，不保存明文密码。当前权限不按用户角色区分，因此不再设置 `role` 字段。`/api/v1/session/refresh` 和 `/api/v1/me/capabilities` 当前不校验登录态；在接入完整会话系统前，不应把它们作为用户级授权边界。最终的对象访问权限仍以 RAM / STS Policy 为准。
+
+例如 `config/users.json`：
+
+```json
+{
+  "users": [
+    {
+      "account": "admin",
+      "password": "scrypt$a147b817c517af25a4de0bdc1dd1cd5f$90070882bf4ea983e4a6a21d66aa48f157b741737b359c0f6418007c8c1d6b87419bb8df2fc1b91c853511a31f38b9fa3f162f6653d401abfc76dff189d005e4",
+      "userId": "admin",
+      "displayName": "管理员",
+      "mustResetPassword": true
+    }
+  ]
+}
+```
+
+如果 `mustResetPassword` 为 `true`，bootstrap 会返回该状态，客户端应调用 `POST /api/v1/session/password`，提交 `account`、`currentPassword` 和 `newPassword`。新密码至少 8 个字符，修改成功后服务端会把该字段改为 `false` 并回写 OSS 文件。
+
+迁移旧用户目录时，必须离线为每个明文密码生成 `scrypt$<salt>$<derivedKey>` 哈希后再上传；服务端会拒绝明文或格式非法的 `password`。FC 运行时 RAM 角色只需对 `config/users.json` 授予 `GetObject` / `PutObject`，客户端下发的 STS Policy 仍仅包含 `shared/` 前缀。
 
 ## 接口
 
@@ -20,6 +40,7 @@
 | POST | `/api/v1/session/bootstrap` | 登录并初始化会话 |
 | POST | `/api/v1/session/refresh` | 服务端备用 STS 刷新 |
 | GET | `/api/v1/me/capabilities` | 演示能力信息 |
+| POST | `/api/v1/session/password` | 修改用户密码 |
 
 所有响应使用统一信封：成功为 `{ "code": "OK", "message": "success", "requestId", "data" }`；错误包含 `code`、`message` 与 `requestId`。路由接受末尾带 `/` 的路径。完整字段、错误码和会话流程见主仓库 [docs/接口.md](../docs/接口.md)。
 
@@ -85,7 +106,7 @@ curl http://127.0.0.1:9000/api/v1/health
 ```bash
 curl -X POST http://127.0.0.1:9000/api/v1/session/bootstrap \
   -H 'content-type: application/json' \
-  -d '{"account":"admin","password":"123456","platform":"macos","appVersion":"0.1.0"}'
+  -d '{"account":"admin","password":"change-me","platform":"macos","appVersion":"0.1.0"}'
 ```
 
 运行测试：

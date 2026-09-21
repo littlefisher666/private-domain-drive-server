@@ -15,6 +15,9 @@ function getAppConfig() {
       region: process.env.OSS_REGION || "cn-hangzhou",
       endpoint: process.env.OSS_ENDPOINT || "oss-cn-hangzhou.aliyuncs.com",
       rootPrefix,
+      usersObjectKey: "config/users.json",
+      accessKeyId,
+      accessKeySecret,
     },
     constraints: {
       multipartUploadThresholdBytes: Number(
