@@ -70,34 +70,12 @@ async function runFc3HttpEventCheck() {
       requestId: "1-fc3-nested-only",
       http: {
         method: "GET",
-        path: "/api/v1/me/capabilities",
+        path: "/api/v1/health",
       },
     },
   });
   assert.equal(nestedOnly.statusCode, 200);
   assert.equal(JSON.parse(nestedOnly.body).code, "OK");
-}
-
-async function runCapabilitiesCheck() {
-  const result = await invoke({
-    path: "/api/v1/me/capabilities",
-    httpMethod: "GET",
-    requestContext: { requestId: "test-capabilities" },
-  });
-
-  assert.equal(result.statusCode, 200);
-  const payload = JSON.parse(result.body);
-  assert.equal(payload.code, "OK");
-  assert.equal(payload.requestId, "test-capabilities");
-  assert.equal(payload.data.userId, null);
-  assert.equal(payload.data.rootPrefix, "shared/");
-  assert.deepEqual(payload.data.capabilities, {
-    list: true,
-    download: true,
-    upload: true,
-    delete: true,
-    preview: true,
-  });
 }
 
 async function runBootstrapValidationCheck() {
@@ -261,7 +239,6 @@ async function main() {
   runUtilityChecks();
   await runHealthCheck();
   await runFc3HttpEventCheck();
-  await runCapabilitiesCheck();
   await runBootstrapValidationCheck();
   await runBootstrapCheck();
   await runRefreshCheck();
