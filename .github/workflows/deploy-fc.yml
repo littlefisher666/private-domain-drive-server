@@ -1,4 +1,4 @@
-name: Deploy FC
+name: 发布阿里云函数计算服务
 
 on:
   workflow_dispatch:
@@ -12,27 +12,27 @@ permissions:
 
 jobs:
   test:
-    name: Test
+    name: 测试
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: 配置 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies
+      - name: 安装依赖
         run: npm ci
 
-      - name: Run tests
+      - name: 运行测试
         run: npm test
 
   deploy:
-    name: Deploy to Aliyun FC
+    name: 发布到阿里云函数计算
     needs: test
     if: >
       github.event_name == 'workflow_dispatch'
@@ -50,16 +50,16 @@ jobs:
       STS_ASSUME_ROLE_ARN: ${{ secrets.STS_ASSUME_ROLE_ARN }}
 
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: 配置 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Validate required secrets
+      - name: 校验必需密钥
         run: |
           required_vars=(
             ALIYUN_ACCESS_KEY_ID
@@ -82,13 +82,13 @@ jobs:
             exit 1
           fi
 
-      - name: Install production dependencies
+      - name: 安装生产依赖
         run: npm ci --omit=dev
 
-      - name: Install Serverless Devs
+      - name: 安装 Serverless Devs
         run: npm install -g @serverless-devs/s
 
-      - name: Configure Serverless Devs access
+      - name: 配置 Serverless Devs 访问凭证
         run: |
           s config add \
             --AccessKeyID "$ALIYUN_ACCESS_KEY_ID" \
@@ -97,9 +97,9 @@ jobs:
             --access default \
             -f
 
-      - name: Deploy to Function Compute
+      - name: 部署到函数计算
         run: s deploy -y --use-local
 
-      - name: Show deploy info
+      - name: 查看部署信息
         if: success()
         run: s info || true
