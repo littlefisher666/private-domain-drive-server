@@ -1,17 +1,92 @@
 const assert = require("node:assert/strict");
+const http = require("node:http");
 const { handler } = require("../src/handler");
 const { formatDateTime } = require("../src/utils/time");
+const { normalizeRootPrefix } = require("../src/config/appConfig");
 const {
-  buildOssScopedPolicy,
-  normalizeRootPrefix,
-} = require("../src/services/stsService");
+  hashPassword,
+  verifyPassword,
+  authenticateUser,
+} = require("../src/config/identity");
 
-function hasStsEnv() {
-  return Boolean(
-    process.env.ALIBABA_CLOUD_ACCESS_KEY_ID &&
-      process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET &&
-      process.env.STS_ASSUME_ROLE_ARN
-  );
+const MOCK_OSS_PORT = 0; // random free port, resolved after listen
+let mockUsersBody = null;
+let lastPutBody = null;
+
+const previousEnv = {};
+const requiredVars = [
+  "PDD_SERVER_OSS_ACCESS_KEY_ID",
+  "PDD_SERVER_OSS_ACCESS_KEY_SECRET",
+  "PDD_CLIENT_OSS_ACCESS_KEY_ID",
+  "PDD_CLIENT_OSS_ACCESS_KEY_SECRET",
+  "PDD_OSS_BUCKET",
+  "PDD_OSS_REGION",
+  "PDD_OSS_ENDPOINT",
+  "PDD_OSS_ROOT_PREFIX",
+];
+
+function setTestEnv(endpoint) {
+  process.env.PDD_SERVER_OSS_ACCESS_KEY_ID = "LTAItestserverkeyid";
+  process.env.PDD_SERVER_OSS_ACCESS_KEY_SECRET = "test-server-secret";
+  process.env.PDD_CLIENT_OSS_ACCESS_KEY_ID = "LTAItestclientkeyid";
+  process.env.PDD_CLIENT_OSS_ACCESS_KEY_SECRET = "test-client-secret";
+  process.env.PDD_OSS_BUCKET = "private-domain-drive";
+  process.env.PDD_OSS_REGION = "cn-hangzhou";
+  process.env.PDD_OSS_ENDPOINT = endpoint;
+  process.env.PDD_OSS_ROOT_PREFIX = "shared/";
+}
+
+function clearRequiredVars() {
+  for (const name of requiredVars) {
+    previousEnv[name] = process.env[name];
+    delete process.env[name];
+  }
+}
+
+function restoreRequiredVars() {
+  for (const name of requiredVars) {
+    if (previousEnv[name] !== undefined) {
+      process.env[name] = previousEnv[name];
+    } else {
+      delete process.env[name];
+    }
+  }
+}
+
+function currentUsersBody() {
+  return mockUsersBody;
+}
+
+function startMockOssServer() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      let chunks = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        const url = req.url.split("?")[0];
+        if (req.method === "GET" && url.endsWith("/config/users.json")) {
+          const body = Buffer.from(currentUsersBody(), "utf8");
+          res.writeHead(200, {
+            "content-type": "application/json",
+            etag: '"mock-etag"',
+            "content-length": body.length,
+          });
+          res.end(body);
+          return;
+        }
+        if (req.method === "PUT" && url.endsWith("/config/users.json")) {
+          lastPutBody = Buffer.concat(chunks).toString("utf8");
+          mockUsersBody = lastPutBody;
+          res.writeHead(200, { etag: '"mock-etag-put"' });
+          res.end();
+          return;
+        }
+        res.writeHead(404, { "content-length": 0 });
+        res.end();
+      });
+    });
+    server.listen(MOCK_OSS_PORT, "127.0.0.1", () => resolve(server));
+  });
 }
 
 async function invoke(event, context = {}) {
@@ -106,18 +181,41 @@ async function runBootstrapValidationCheck() {
   });
   assert.equal(missingCredentials.statusCode, 400);
   assert.equal(JSON.parse(missingCredentials.body).code, "BAD_REQUEST");
+}
 
+async function runBootstrapUnauthorizedCheck() {
   const unauthorized = await invoke({
     path: "/api/v1/session/bootstrap",
     httpMethod: "POST",
     body: JSON.stringify({ account: "admin", password: "wrong" }),
     requestContext: { requestId: "test-bootstrap-unauthorized" },
   });
-  assert.equal(unauthorized.statusCode, 503);
-  assert.equal(JSON.parse(unauthorized.body).code, "SERVICE_UNAVAILABLE");
+  assert.equal(unauthorized.statusCode, 401);
+  const payload = JSON.parse(unauthorized.body);
+  assert.equal(payload.code, "UNAUTHORIZED");
+  assert.equal(payload.data, undefined);
 }
 
-async function runBootstrapCheck() {
+async function runBootstrapMissingConfigCheck() {
+  clearRequiredVars();
+  try {
+    const result = await invoke({
+      path: "/api/v1/session/bootstrap",
+      httpMethod: "POST",
+      body: JSON.stringify({ account: "admin", password: "123456" }),
+      requestContext: { requestId: "test-bootstrap-missing-config" },
+    });
+    assert.equal(result.statusCode, 503);
+    const payload = JSON.parse(result.body);
+    assert.equal(payload.code, "SERVICE_UNAVAILABLE");
+    assert.match(payload.message, /^Missing required environment variables: /);
+    assert.ok(!JSON.stringify(payload).includes("test-client-secret"));
+  } finally {
+    restoreRequiredVars();
+  }
+}
+
+async function runBootstrapSuccessCheck() {
   const result = await invoke({
     path: "/api/v1/session/bootstrap",
     httpMethod: "POST",
@@ -130,46 +228,46 @@ async function runBootstrapCheck() {
     requestContext: { requestId: "test-bootstrap" },
   });
 
+  assert.equal(result.statusCode, 200);
   const payload = JSON.parse(result.body);
+  assert.equal(payload.code, "OK");
+  assert.equal(payload.data.user.userId, "admin");
+  assert.equal(payload.data.oss.rootPrefix, "shared/");
+  assert.equal(payload.data.oss.bucket, "private-domain-drive");
+  assert.equal(payload.data.oss.region, "cn-hangzhou");
+  assert.equal(payload.data.oss.endpoint.startsWith("http://127.0.0.1"), true);
+  assert.equal(payload.data.clientCredentials.accessKeyId, "LTAItestclientkeyid");
+  assert.equal(payload.data.clientCredentials.accessKeySecret, "test-client-secret");
+  assert.equal(payload.data.constraints.multipartUploadThresholdBytes, 10485760);
+  assert.equal(payload.data.constraints.textPreviewMaxBytes, 524288);
+  assert.deepEqual(payload.data.constraints.allowedPreviewExtensions, [
+    "jpg",
+    "jpeg",
+    "png",
+    "gif",
+    "pdf",
+    "txt",
+    "md",
+  ]);
 
-  if (hasStsEnv()) {
-    assert.equal(result.statusCode, 200);
-    assert.equal(payload.code, "OK");
-    assert.equal(payload.data.oss.rootPrefix, "shared/");
-    assert.equal(payload.data.user.userId, "admin");
-    assert.equal(typeof payload.data.credentials.accessKeyId, "string");
-    assert.match(payload.data.credentials.expiration, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
-    assert.equal(payload.data.constraints.multipartUploadThresholdBytes, 10485760);
-    assert.equal(typeof payload.data.stsBroker.accessKeyId, "string");
-    assert.equal(typeof payload.data.stsBroker.roleArn, "string");
-    assert.equal(typeof payload.data.stsBroker.policy, "string");
-    return;
-  }
-
-  assert.equal(result.statusCode, 503);
-  assert.equal(payload.code, "SERVICE_UNAVAILABLE");
-  assert.match(payload.message, /^Missing /);
+  // BREAKING：响应不再包含 STS 临时凭证与 stsBroker
+  const serialized = JSON.stringify(payload.data);
+  assert.equal(serialized.includes("securityToken"), false);
+  assert.equal(serialized.includes("stsBroker"), false);
+  assert.equal(serialized.includes("expiration"), false);
+  assert.equal(payload.data.credentials, undefined);
+  assert.ok(!serialized.includes("test-server-secret"));
 }
 
-async function runRefreshCheck() {
+async function runRefreshRouteRemovedCheck() {
   const result = await invoke({
     path: "/api/v1/session/refresh",
     httpMethod: "POST",
     requestContext: { requestId: "test-refresh" },
   });
 
-  const payload = JSON.parse(result.body);
-
-  if (hasStsEnv()) {
-    assert.equal(result.statusCode, 200);
-    assert.equal(payload.code, "OK");
-    assert.equal(typeof payload.data.credentials.securityToken, "string");
-    assert.match(payload.data.credentials.expiration, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
-    return;
-  }
-
-  assert.equal(result.statusCode, 503);
-  assert.equal(payload.code, "SERVICE_UNAVAILABLE");
+  assert.equal(result.statusCode, 404);
+  assert.equal(JSON.parse(result.body).code, "NOT_FOUND");
 }
 
 async function runPasswordChangeValidationCheck() {
@@ -203,6 +301,33 @@ async function runPasswordChangeValidationCheck() {
   assert.equal(JSON.parse(shortPassword.body).code, "BAD_REQUEST");
 }
 
+async function runPasswordChangeRoundTripCheck() {
+  const result = await invoke({
+    path: "/api/v1/session/password",
+    httpMethod: "POST",
+    body: JSON.stringify({
+      account: "admin",
+      currentPassword: "123456",
+      newPassword: "new-password-123",
+    }),
+    requestContext: { requestId: "test-password-change" },
+  });
+  assert.equal(result.statusCode, 200);
+  assert.ok(lastPutBody, "changePassword should write users.json back to OSS");
+  const document = JSON.parse(lastPutBody);
+  const user = document.users.find((item) => item.account === "admin");
+  assert.equal(user.mustResetPassword, false);
+  assert.equal(await verifyPassword("new-password-123", user.password), true);
+  assert.equal(await verifyPassword("123456", user.password), false);
+
+  const loginAgain = await authenticateUser(
+    "admin",
+    "new-password-123",
+    globalThis.__testOssConfig
+  );
+  assert.equal(loginAgain?.userId, "admin");
+}
+
 async function runNotFoundCheck() {
   const result = await invoke({
     path: "/api/v1/unknown",
@@ -219,32 +344,54 @@ async function runNotFoundCheck() {
 function runUtilityChecks() {
   assert.equal(formatDateTime("2026-06-05T12:00:00Z"), "2026-06-05 12:00:00");
   assert.equal(normalizeRootPrefix("shared"), "shared/");
-
-  const policy = JSON.parse(
-    buildOssScopedPolicy({
-      ossBucket: "private-domain-drive",
-      ossRootPrefix: "shared/",
-    })
-  );
-  assert.equal(policy.Version, "1");
-  assert.equal(policy.Statement.length, 2);
-  assert.ok(policy.Statement[0].Action.includes("oss:ProcessObject"));
-  assert.equal(
-    policy.Statement[0].Resource[0],
-    "acs:oss:*:*:private-domain-drive/shared/*"
-  );
 }
 
 async function main() {
   runUtilityChecks();
-  await runHealthCheck();
-  await runFc3HttpEventCheck();
-  await runBootstrapValidationCheck();
-  await runBootstrapCheck();
-  await runRefreshCheck();
-  await runPasswordChangeValidationCheck();
-  await runNotFoundCheck();
-  console.log("All handler tests passed");
+
+  const passwordHash = await hashPassword("123456");
+  const document = {
+    users: [
+      {
+        userId: "admin",
+        account: "admin",
+        displayName: "admin",
+        password: passwordHash,
+        mustResetPassword: true,
+      },
+    ],
+  };
+  mockUsersBody = JSON.stringify(document);
+
+  const server = await startMockOssServer();
+  const { port } = server.address();
+  setTestEnv(`http://127.0.0.1:${port}`);
+
+  globalThis.__testOssConfig = {
+    bucket: "private-domain-drive",
+    region: "cn-hangzhou",
+    endpoint: `http://127.0.0.1:${port}`,
+    rootPrefix: "shared/",
+    usersObjectKey: "config/users.json",
+    accessKeyId: "LTAItestserverkeyid",
+    accessKeySecret: "test-server-secret",
+  };
+
+  try {
+    await runHealthCheck();
+    await runFc3HttpEventCheck();
+    await runBootstrapValidationCheck();
+    await runBootstrapUnauthorizedCheck();
+    await runBootstrapMissingConfigCheck();
+    await runBootstrapSuccessCheck();
+    await runRefreshRouteRemovedCheck();
+    await runPasswordChangeValidationCheck();
+    await runPasswordChangeRoundTripCheck();
+    await runNotFoundCheck();
+    console.log("All handler tests passed");
+  } finally {
+    server.close();
+  }
 }
 
 main().catch((error) => {
