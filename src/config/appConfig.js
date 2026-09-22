@@ -1,60 +1,58 @@
+const { ConfigError } = require("../utils/configError");
+
 function getAppConfig() {
-  const rootPrefix = normalizeRootPrefix(process.env.OSS_ROOT_PREFIX || "shared/");
-  const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID || "";
-  const accessKeySecret = process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET || "";
-  const assumeRoleArn = process.env.STS_ASSUME_ROLE_ARN || "";
-  const roleSessionName =
-    process.env.STS_ROLE_SESSION_NAME || "private-domain-drive-session";
-  const durationSeconds = Number(process.env.STS_DURATION_SECONDS || 3600);
-  const endpoint = process.env.STS_ENDPOINT || "sts.cn-hangzhou.aliyuncs.com";
-  const bucket = process.env.OSS_BUCKET || "private-domain-drive";
+  const rootPrefix = normalizeRootPrefix(
+    process.env.PDD_OSS_ROOT_PREFIX || "shared/"
+  );
 
   return {
     oss: {
-      bucket,
-      region: process.env.OSS_REGION || "cn-hangzhou",
-      endpoint: process.env.OSS_ENDPOINT || "oss-cn-hangzhou.aliyuncs.com",
+      bucket: process.env.PDD_OSS_BUCKET || "private-domain-drive",
+      region: process.env.PDD_OSS_REGION || "cn-hangzhou",
+      endpoint:
+        process.env.PDD_OSS_ENDPOINT || "oss-cn-hangzhou.aliyuncs.com",
       rootPrefix,
       usersObjectKey: "config/users.json",
-      accessKeyId,
-      accessKeySecret,
+      accessKeyId: process.env.PDD_SERVER_OSS_ACCESS_KEY_ID || "",
+      accessKeySecret: process.env.PDD_SERVER_OSS_ACCESS_KEY_SECRET || "",
+    },
+    clientCredentials: {
+      accessKeyId: process.env.PDD_CLIENT_OSS_ACCESS_KEY_ID || "",
+      accessKeySecret: process.env.PDD_CLIENT_OSS_ACCESS_KEY_SECRET || "",
     },
     constraints: {
       multipartUploadThresholdBytes: Number(
-        process.env.MULTIPART_UPLOAD_THRESHOLD_BYTES || 10 * 1024 * 1024
+        process.env.PDD_MULTIPART_UPLOAD_THRESHOLD_BYTES || 10 * 1024 * 1024
       ),
       textPreviewMaxBytes: Number(
-        process.env.TEXT_PREVIEW_MAX_BYTES || 512 * 1024
+        process.env.PDD_TEXT_PREVIEW_MAX_BYTES || 512 * 1024
       ),
-      allowedPreviewExtensions: (process.env.ALLOWED_PREVIEW_EXTENSIONS ||
-        "jpg,jpeg,png,gif,pdf,txt,md")
+      allowedPreviewExtensions: (
+        process.env.PDD_ALLOWED_PREVIEW_EXTENSIONS ||
+        "jpg,jpeg,png,gif,pdf,txt,md"
+      )
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean),
     },
-    sts: {
-      accessKeyId,
-      accessKeySecret,
-      endpoint,
-      assumeRoleArn,
-      roleSessionName,
-      durationSeconds,
-      ossBucket: bucket,
-      ossRootPrefix: rootPrefix,
-    },
-    // Client-side AssumeRole broker. Prefer dedicated limited AK; fallback to server AK.
-    stsBroker: {
-      accessKeyId: process.env.STS_BROKER_ACCESS_KEY_ID || accessKeyId,
-      accessKeySecret:
-        process.env.STS_BROKER_ACCESS_KEY_SECRET || accessKeySecret,
-      endpoint,
-      roleArn: assumeRoleArn,
-      roleSessionName,
-      durationSeconds,
-      ossBucket: bucket,
-      ossRootPrefix: rootPrefix,
-    },
   };
+}
+
+function getMissingRequiredVariables() {
+  const required = [
+    "PDD_SERVER_OSS_ACCESS_KEY_ID",
+    "PDD_SERVER_OSS_ACCESS_KEY_SECRET",
+    "PDD_CLIENT_OSS_ACCESS_KEY_ID",
+    "PDD_CLIENT_OSS_ACCESS_KEY_SECRET",
+  ];
+  return required.filter((name) => !process.env[name]);
+}
+
+function validateAppConfig() {
+  const missing = getMissingRequiredVariables();
+  if (missing.length > 0) {
+    throw new ConfigError(`Missing required environment variables: ${missing.join(", ")}`);
+  }
 }
 
 function normalizeRootPrefix(prefix) {
@@ -67,4 +65,7 @@ function normalizeRootPrefix(prefix) {
 
 module.exports = {
   getAppConfig,
+  getMissingRequiredVariables,
+  validateAppConfig,
+  normalizeRootPrefix,
 };

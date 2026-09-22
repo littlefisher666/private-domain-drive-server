@@ -1,12 +1,8 @@
-const { getAppConfig } = require("../config/appConfig");
+const { getAppConfig, getMissingRequiredVariables } = require("../config/appConfig");
 const {
   authenticateUser,
   getDefaultCapabilities,
 } = require("../config/identity");
-const {
-  buildStsBrokerPayload,
-  issueStsCredentials,
-} = require("../services/stsService");
 const { ConfigError } = require("../utils/configError");
 const { error, serviceUnavailable, success } = require("../utils/response");
 
@@ -27,6 +23,14 @@ async function bootstrapSessionHandler(request) {
     return error({
       code: "BAD_REQUEST",
       message: "account and password are required",
+      requestId: request.requestId,
+    });
+  }
+
+  const missingVariables = getMissingRequiredVariables();
+  if (missingVariables.length > 0) {
+    return serviceUnavailable({
+      message: `Missing required environment variables: ${missingVariables.join(", ")}`,
       requestId: request.requestId,
     });
   }
@@ -52,28 +56,15 @@ async function bootstrapSessionHandler(request) {
     });
   }
 
-  let credentials;
-  let stsBroker;
-
-  try {
-    credentials = await issueStsCredentials(config.sts);
-    stsBroker = buildStsBrokerPayload(config.stsBroker);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      return serviceUnavailable({
-        message: err.message,
-        requestId: request.requestId,
-      });
-    }
-
-    throw err;
-  }
-
   return success(
     {
-      credentials,
-      stsBroker,
-      oss: config.oss,
+      oss: {
+        bucket: config.oss.bucket,
+        region: config.oss.region,
+        endpoint: config.oss.endpoint,
+        rootPrefix: config.oss.rootPrefix,
+      },
+      clientCredentials: config.clientCredentials,
       user: {
         userId: identity.userId,
         displayName: identity.displayName,

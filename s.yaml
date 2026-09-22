@@ -23,18 +23,16 @@ resources:
       instanceConcurrency: 10
       internetAccess: true
       logConfig: auto
-      role: ${env(ALIYUN_FC_ROLE_ARN)}
+      role: ${env(PDD_FC_ROLE_ARN)}
       environmentVariables:
-        OSS_BUCKET: private-domain-drive
-        OSS_REGION: cn-hangzhou
-        OSS_ENDPOINT: oss-cn-hangzhou.aliyuncs.com
-        OSS_ROOT_PREFIX: shared/
-        TEXT_PREVIEW_MAX_BYTES: "524288"
-        MULTIPART_UPLOAD_THRESHOLD_BYTES: "10485760"
-        ALLOWED_PREVIEW_EXTENSIONS: jpg,jpeg,png,gif,pdf,txt,md
-        STS_ROLE_SESSION_NAME: private-domain-drive-session
-        STS_DURATION_SECONDS: "3600"
-        STS_ENDPOINT: sts.cn-hangzhou.aliyuncs.com
-        STS_ASSUME_ROLE_ARN: ${env(STS_ASSUME_ROLE_ARN)}
-        ALIBABA_CLOUD_ACCESS_KEY_ID: ${env(ALIBABA_CLOUD_ACCESS_KEY_ID)}
-        ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${env(ALIBABA_CLOUD_ACCESS_KEY_SECRET)}
+        PDD_SERVER_OSS_ACCESS_KEY_ID: ${env(PDD_SERVER_OSS_ACCESS_KEY_ID)}
+        PDD_SERVER_OSS_ACCESS_KEY_SECRET: ${env(PDD_SERVER_OSS_ACCESS_KEY_SECRET)}
+        PDD_CLIENT_OSS_ACCESS_KEY_ID: ${env(PDD_CLIENT_OSS_ACCESS_KEY_ID)}
+        PDD_CLIENT_OSS_ACCESS_KEY_SECRET: ${env(PDD_CLIENT_OSS_ACCESS_KEY_SECRET)}
+        PDD_OSS_BUCKET: private-domain-drive
+        PDD_OSS_REGION: cn-hangzhou
+        PDD_OSS_ENDPOINT: oss-cn-hangzhou.aliyuncs.com
+        PDD_OSS_ROOT_PREFIX: shared/
+        PDD_TEXT_PREVIEW_MAX_BYTES: "524288"
+        PDD_MULTIPART_UPLOAD_THRESHOLD_BYTES: "10485760"
+        PDD_ALLOWED_PREVIEW_EXTENSIONS: jpg,jpeg,png,gif,pdf,txt,md

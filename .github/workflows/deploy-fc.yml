@@ -39,15 +39,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # 部署凭证：用于 Serverless Devs 调用国内阿里云 FC API
-      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
-      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
-      ALIYUN_ACCOUNT_ID: ${{ secrets.ALIYUN_ACCOUNT_ID }}
-      ALIYUN_FC_ROLE_ARN: ${{ secrets.ALIYUN_FC_ROLE_ARN }}
-      # 运行时凭证：写入 FC 环境变量，供 STS AssumeRole 使用
-      ALIBABA_CLOUD_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
-      ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
-      STS_ASSUME_ROLE_ARN: ${{ secrets.STS_ASSUME_ROLE_ARN }}
+      # 部署凭证：用于 Serverless Devs 调用国内阿里云 FC API（RAM 用户 pdd-fc-deploy）
+      PDD_DEPLOY_ACCESS_KEY_ID: ${{ secrets.PDD_DEPLOY_ACCESS_KEY_ID }}
+      PDD_DEPLOY_ACCESS_KEY_SECRET: ${{ secrets.PDD_DEPLOY_ACCESS_KEY_SECRET }}
+      PDD_DEPLOY_ACCOUNT_ID: ${{ secrets.PDD_DEPLOY_ACCOUNT_ID }}
+      PDD_FC_ROLE_ARN: ${{ secrets.PDD_FC_ROLE_ARN }}
+      # 运行时凭证：写入 FC 环境变量，供服务端直连 OSS 读写 config/users.json（RAM 用户 pdd-server）
+      PDD_SERVER_OSS_ACCESS_KEY_ID: ${{ secrets.PDD_SERVER_OSS_ACCESS_KEY_ID }}
+      PDD_SERVER_OSS_ACCESS_KEY_SECRET: ${{ secrets.PDD_SERVER_OSS_ACCESS_KEY_SECRET }}
+      # 下发给客户端的 OSS 凭证（RAM 用户 pdd-client），登录时经 bootstrap 返回
+      PDD_CLIENT_OSS_ACCESS_KEY_ID: ${{ secrets.PDD_CLIENT_OSS_ACCESS_KEY_ID }}
+      PDD_CLIENT_OSS_ACCESS_KEY_SECRET: ${{ secrets.PDD_CLIENT_OSS_ACCESS_KEY_SECRET }}
 
     steps:
       - name: 检出代码
@@ -62,13 +64,14 @@ jobs:
       - name: 校验必需密钥
         run: |
           required_vars=(
-            ALIYUN_ACCESS_KEY_ID
-            ALIYUN_ACCESS_KEY_SECRET
-            ALIYUN_ACCOUNT_ID
-            ALIYUN_FC_ROLE_ARN
-            ALIBABA_CLOUD_ACCESS_KEY_ID
-            ALIBABA_CLOUD_ACCESS_KEY_SECRET
-            STS_ASSUME_ROLE_ARN
+            PDD_DEPLOY_ACCESS_KEY_ID
+            PDD_DEPLOY_ACCESS_KEY_SECRET
+            PDD_DEPLOY_ACCOUNT_ID
+            PDD_FC_ROLE_ARN
+            PDD_SERVER_OSS_ACCESS_KEY_ID
+            PDD_SERVER_OSS_ACCESS_KEY_SECRET
+            PDD_CLIENT_OSS_ACCESS_KEY_ID
+            PDD_CLIENT_OSS_ACCESS_KEY_SECRET
           )
           missing=0
           for name in "${required_vars[@]}"; do
@@ -91,9 +94,9 @@ jobs:
       - name: 配置 Serverless Devs 访问凭证
         run: |
           s config add \
-            --AccessKeyID "$ALIYUN_ACCESS_KEY_ID" \
-            --AccessKeySecret "$ALIYUN_ACCESS_KEY_SECRET" \
-            --AccountID "$ALIYUN_ACCOUNT_ID" \
+            --AccessKeyID "$PDD_DEPLOY_ACCESS_KEY_ID" \
+            --AccessKeySecret "$PDD_DEPLOY_ACCESS_KEY_SECRET" \
+            --AccountID "$PDD_DEPLOY_ACCOUNT_ID" \
             --access default \
             -f
 
