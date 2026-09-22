@@ -28,3 +28,6 @@ coverage/
 
 # Logs
 *.log
+
+# Local user-directory seed (contains real password hashes)
+config/
