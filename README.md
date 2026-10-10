@@ -55,34 +55,34 @@
 
 ## 运行时配置
 
-复制示例并导出环境变量：
+服务端环境变量统一存放在主仓库 `secrets/server/.env`（经 git-crypt 加密后随主仓库提交）。首次配置从示例复制：
 
 ```bash
-cp .env.example .env
+cp .env.example ../secrets/server/.env
+```
+
+`node local.js` 会自动从 `../secrets/server/.env` 加载变量；本地执行 `pnpm deploy` 前需先导出：
+
+```bash
 set -a
-source .env
+source ../secrets/server/.env
 set +a
 ```
 
-`.env` 不会被 `node local.js` 自动加载。关键变量如下：
+关键变量如下：
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `ALIBABA_CLOUD_ACCESS_KEY_ID` | 是 | 服务端调用 STS 的 RAM AccessKeyId |
-| `ALIBABA_CLOUD_ACCESS_KEY_SECRET` | 是 | 服务端调用 STS 的 RAM AccessKeySecret |
-| `STS_ASSUME_ROLE_ARN` | 是 | OSS 业务角色 ARN |
-| `STS_BROKER_ACCESS_KEY_ID` / `STS_BROKER_ACCESS_KEY_SECRET` | 否 | 下发给客户端用于直连 STS 的专用受限 AK；留空时回退到服务端 STS AK |
-| `STS_ROLE_SESSION_NAME` | 否 | 会话名，默认 `private-domain-drive-session` |
-| `STS_DURATION_SECONDS` | 否 | STS 有效期秒数，默认 `3600` |
-| `STS_ENDPOINT` | 否 | 默认 `sts.cn-hangzhou.aliyuncs.com` |
-| `OSS_BUCKET` / `OSS_REGION` / `OSS_ENDPOINT` | 否 | 下发给客户端的 OSS 连接信息 |
-| `OSS_ROOT_PREFIX` | 否 | 受限对象前缀，默认 `shared/` |
-| `MULTIPART_UPLOAD_THRESHOLD_BYTES` | 否 | 分片上传建议阈值，默认 10 MiB |
-| `TEXT_PREVIEW_MAX_BYTES` | 否 | 文本预览上限，默认 512 KiB |
-| `ALLOWED_PREVIEW_EXTENSIONS` | 否 | 逗号分隔的预览扩展名白名单 |
+| `PDD_SERVER_OSS_ACCESS_KEY_ID` / `PDD_SERVER_OSS_ACCESS_KEY_SECRET` | 是 | 服务端 OSS AK，读写 `config/users.json` |
+| `PDD_CLIENT_OSS_ACCESS_KEY_ID` / `PDD_CLIENT_OSS_ACCESS_KEY_SECRET` | 是 | 客户端 OSS AK，登录校验通过后随 bootstrap 下发 |
+| `PDD_OSS_BUCKET` / `PDD_OSS_REGION` / `PDD_OSS_ENDPOINT` | 是 | OSS 连接信息 |
+| `PDD_OSS_ROOT_PREFIX` | 否 | 受限对象前缀，默认 `shared/` |
+| `PDD_MULTIPART_UPLOAD_THRESHOLD_BYTES` | 否 | 分片上传建议阈值，默认 10 MiB |
+| `PDD_TEXT_PREVIEW_MAX_BYTES` | 否 | 文本预览上限，默认 512 KiB |
+| `PDD_ALLOWED_PREVIEW_EXTENSIONS` | 否 | 预览扩展名白名单 |
 | `PORT` | 否 | 本地 HTTP 端口，默认 `9000` |
 
-缺少 STS 必填配置时，health 仍可用；bootstrap / refresh 返回 `503 SERVICE_UNAVAILABLE`。STS 过期时间以 `yyyy-MM-dd HH:mm:ss` 的 UTC 时间格式返回。
+缺少必填配置时 health 仍可用；bootstrap 返回 `503 SERVICE_UNAVAILABLE`。
 
 ## 本地开发与验证
 
@@ -99,7 +99,7 @@ npm run dev
 curl http://127.0.0.1:9000/api/v1/health
 ```
 
-配置 STS 后可验证会话初始化：
+配置完成后可验证会话初始化：
 
 ```bash
 curl -X POST http://127.0.0.1:9000/api/v1/session/bootstrap \
