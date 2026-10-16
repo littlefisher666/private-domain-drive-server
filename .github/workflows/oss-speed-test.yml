@@ -38,8 +38,8 @@ jobs:
           curl -sSfL -o ossutil.zip \
             https://github.com/aliyun/ossutil/releases/download/v1.7.18/ossutil-v1.7.18-linux-amd64.zip
           unzip -o ossutil.zip -d ossutil
-          chmod +x ossutil/ossutil64
-          ./ossutil/ossutil64 config -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
+          chmod +x ossutil/ossutil-v1.7.18-linux-amd64/ossutil64
+          ./ossutil/ossutil-v1.7.18-linux-amd64/ossutil64 config -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
 
       - name: 生成测试文件
         run: |
@@ -51,7 +51,7 @@ jobs:
           TEST_KEY: .speed-test/runner-${{ github.run_id }}.bin
         run: |
           start="$(date +%s)"
-          ./ossutil/ossutil64 cp test.bin "oss://$OSS_BUCKET/$TEST_KEY" \
+          ./ossutil/ossutil-v1.7.18-linux-amd64/ossutil64 cp test.bin "oss://$OSS_BUCKET/$TEST_KEY" \
             --bigfile-threshold=10 --jobs=4
           end="$(date +%s)"
           size_mb="${{ inputs.size_mb }}"
@@ -67,4 +67,4 @@ jobs:
         env:
           TEST_KEY: .speed-test/runner-${{ github.run_id }}.bin
         run: |
-          ./ossutil/ossutil64 rm "oss://$OSS_BUCKET/$TEST_KEY" || true
+          ./ossutil/ossutil-v1.7.18-linux-amd64/ossutil64 rm "oss://$OSS_BUCKET/$TEST_KEY" || true
