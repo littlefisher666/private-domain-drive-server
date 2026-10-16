@@ -22,8 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      OSS_ACCESS_KEY_ID: ${{ secrets.PDD_SERVER_OSS_ACCESS_KEY_ID }}
-      OSS_ACCESS_KEY_SECRET: ${{ secrets.PDD_SERVER_OSS_ACCESS_KEY_SECRET }}
+      # pdd-server 密钥仅授权 config/users.json，测速改用 pdd-client（授权 shared/ 前缀）
+      OSS_ACCESS_KEY_ID: ${{ secrets.PDD_CLIENT_OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.PDD_CLIENT_OSS_ACCESS_KEY_SECRET }}
       OSS_BUCKET: private-domain-drive
       OSS_ENDPOINT: oss-cn-hangzhou.aliyuncs.com
 
@@ -48,7 +49,7 @@ jobs:
 
       - name: 上传并计时
         env:
-          TEST_KEY: .speed-test/runner-${{ github.run_id }}.bin
+          TEST_KEY: shared/.speed-test/runner-${{ github.run_id }}.bin
         run: |
           start="$(date +%s)"
           ./ossutil/ossutil-v1.7.18-linux-amd64/ossutil64 cp test.bin "oss://$OSS_BUCKET/$TEST_KEY" \
@@ -65,6 +66,6 @@ jobs:
       - name: 清理测试对象
         if: always()
         env:
-          TEST_KEY: .speed-test/runner-${{ github.run_id }}.bin
+          TEST_KEY: shared/.speed-test/runner-${{ github.run_id }}.bin
         run: |
           ./ossutil/ossutil-v1.7.18-linux-amd64/ossutil64 rm "oss://$OSS_BUCKET/$TEST_KEY" || true
