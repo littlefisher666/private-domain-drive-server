@@ -1,0 +1,70 @@
+name: OSS 上传测速（临时）
+
+on:
+  workflow_dispatch:
+    inputs:
+      size_mb:
+        description: "测试文件大小（MB）"
+        required: false
+        type: number
+        default: 100
+
+concurrency:
+  group: oss-speed-test
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  speed-test:
+    name: 上传测速
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OSS_ACCESS_KEY_ID: ${{ secrets.PDD_SERVER_OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.PDD_SERVER_OSS_ACCESS_KEY_SECRET }}
+      OSS_BUCKET: private-domain-drive
+      OSS_ENDPOINT: oss-cn-hangzhou.aliyuncs.com
+
+    steps:
+      - name: 校验参数与密钥
+        run: |
+          test -n "$OSS_ACCESS_KEY_ID" && test -n "$OSS_ACCESS_KEY_SECRET"
+          test "${{ inputs.size_mb }}" -gt 0
+
+      - name: 安装 ossutil
+        run: |
+          curl -sSfL -o ossutil.zip \
+            https://github.com/aliyun/ossutil/releases/download/v1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip -o ossutil.zip -d ossutil
+          chmod +x ossutil/ossutil64
+          ./ossutil/ossutil64 config -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
+
+      - name: 生成测试文件
+        run: |
+          dd if=/dev/urandom of=test.bin bs=1M count=${{ inputs.size_mb }} status=none
+          ls -lh test.bin
+
+      - name: 上传并计时
+        env:
+          TEST_KEY: .speed-test/runner-${{ github.run_id }}.bin
+        run: |
+          start="$(date +%s)"
+          ./ossutil/ossutil64 cp test.bin "oss://$OSS_BUCKET/$TEST_KEY" \
+            --bigfile-threshold=10 --jobs=4
+          end="$(date +%s)"
+          size_mb="${{ inputs.size_mb }}"
+          elapsed="$((end - start))"
+          if [ "$elapsed" -gt 0 ]; then
+            echo "总耗时：${elapsed}s，平均速率：$((size_mb / elapsed)) MB/s"
+          else
+            echo "总耗时：<1s（${size_mb} MB）"
+          fi
+
+      - name: 清理测试对象
+        if: always()
+        env:
+          TEST_KEY: .speed-test/runner-${{ github.run_id }}.bin
+        run: |
+          ./ossutil/ossutil64 rm "oss://$OSS_BUCKET/$TEST_KEY" || true
